@@ -16,13 +16,13 @@ Param param = {
     .dev_ = NULL
 };
 
-struct Eth {
+typedef struct {
     uint8_t dst_mac[6];
     uint8_t src_mac[6];
     uint16_t ethertype;
-};
+} Eth;
 
-struct IP {
+typedef struct {
     uint8_t version_ihl;
     uint8_t type_of_service;
     uint16_t total_length;
@@ -33,9 +33,9 @@ struct IP {
     uint16_t checksum;
     uint8_t src_ip[4];
     uint8_t dst_ip[4];
-};
+} Ip;
 
-struct TCP {
+typedef struct {
     uint16_t src_port;
     uint16_t dst_port;
     uint32_t seq_num;
@@ -45,11 +45,11 @@ struct TCP {
     uint16_t window_size;
     uint16_t checksum;
     uint16_t urgent_pointer;
-};
+} Tcp;
 
-struct Payload {
+typedef struct {
     const u_char* data;
-};
+} Payload;
 
 bool parse(Param* param, int argc, char* argv[]) {
     if (argc != 2) {
@@ -61,9 +61,41 @@ bool parse(Param* param, int argc, char* argv[]) {
 }
 
 void print_mac_addr(uint8_t* ptr) {
-    printf("dst mac: %02x:%02x:%02x:%02x:%02x:%02x\n",
+    printf("%02x:%02x:%02x:%02x:%02x:%02x",
         ptr[0], ptr[1], ptr[2],
         ptr[3], ptr[4], ptr[5]);
+}
+
+void print_ip_addr(uint8_t* ptr){
+    printf("%u.%u.%u.%u",
+    ptr[0], ptr[1], ptr[2], ptr[3]);
+}
+
+void print_payload(uint8_t len, Payload* payload){
+    uint8_t max = (len < 20) ? len : 20;
+    for(int i = 0; i<max ; i++) {
+        printf("%02x", payload->data[i]);
+        if(i != max - 1)
+            printf("|");
+    }   
+}
+
+void print_information(Eth* eth, Ip* ip, Tcp* tcp, Payload* payload, uint8_t payload_len){
+    printf("MAC: ");
+    print_mac_addr(eth->src_mac);
+    printf(" -> ");
+    print_mac_addr(eth->dst_mac);
+    printf("\n");
+    printf("IP: ");
+    print_ip_addr(ip->src_ip);
+    printf(" -> ");
+    print_ip_addr(ip->dst_ip);
+    printf("\n");
+    printf("PORT: ");
+    printf("%u -> ", ntohs(tcp->src_port));
+    printf("%u\n", ntohs(tcp->dst_port));
+    printf("PAYLOAD: ");
+    print_payload(payload_len, payload);
 }
 
 int main(int argc, char* argv[]) {
@@ -90,38 +122,23 @@ int main(int argc, char* argv[]) {
         }
         printf("%u bytes captured\n", header->caplen);
 
-        struct Eth *eth = (struct Eth*)packet;
+        Eth *eth = (Eth*)packet;
 
-        struct IP *ip = (struct IP*)(packet + sizeof(struct Eth));
+        Ip *ip = (Ip*)(packet + sizeof(Eth));
         uint8_t ip_hlen = (ip->version_ihl & 0x0f) * 4;
         
-        if(ip->protocol != 0x06)
+        if(ip->protocol != 0x06) // TCP 아니면 무시
             continue;
 
-        struct TCP *tcp = (struct TCP*)(packet + sizeof(struct Eth) + ip_hlen);
+        Tcp *tcp = (Tcp*)(packet + sizeof(Eth) + ip_hlen);
         uint8_t tcp_len = ((tcp->data_offset_reserved & 0xF0) >> 4) * 4;
-        printf("%u\n", tcp_len);
-
-        struct Payload payload;
-        payload.data = packet + sizeof(struct Eth) + ip_hlen + tcp_len;
         
-        print_mac_addr(eth->dst_mac);
-        print_mac_addr(eth->src_mac);
-
-        printf("src ip: %u.%u.%u.%u\n",
-            ip->src_ip[0], ip->src_ip[1], ip->src_ip[2], ip->src_ip[3]);
-        printf("dst ip: %u.%u.%u.%u\n",
-            ip->dst_ip[0], ip->dst_ip[1], ip->dst_ip[2], ip->dst_ip[3]);
-
-        printf("src port: %u\n", tcp->src_port);
-        printf("dst port: %u\n", tcp->dst_port);
-
+        Payload payload;
+        payload.data = packet + sizeof(Eth) + ip_hlen + tcp_len;
         uint8_t payload_len = ntohs(ip->total_length) - ip_hlen - tcp_len;
-        printf("patload len: %u\n", payload_len);
 
-        for(int i = 0; i < 20 && i < payload_len ; i++) {
-            printf("%02x", payload.data[i]);
-        }
+        print_information(eth, ip, tcp, &payload, payload_len);
+
         printf("\n\n");   
     }
     pcap_close(pcap);
